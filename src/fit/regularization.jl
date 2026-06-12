@@ -139,3 +139,106 @@ function prox!(y, f::NormL1plusL21, x, γ)
 
     return f.l1(y) + fl21
 end
+
+"""
+    TotalVariation1DWeighted(λ)
+
+Return the 1D total variation function
+
+```math
+f(x) = ∑ λᵢ ⋅ |xᵢ₊₁ - xᵢ|
+``` 
+
+for a nonnegative `λ` array. In words, it is the sum of the absolute differences between
+adjacent elements of `x`, weighted by `λ`.
+"""
+struct TotalVariation1DWeighted{V <: AbstractVector}
+    λ::V
+    function TotalVariation1DWeighted{V}(λ::V) where {V}
+        if any(λ .< 0)
+            error("parameter λ must be nonnegative")
+        else
+            new(λ)
+        end
+    end
+end
+
+TotalVariation1DWeighted(λ::V) where {V} = TotalVariation1DWeighted{V}(λ)
+
+(f::TotalVariation1DWeighted)(x) = sum(f.λ[i] * abs(x[i + 1] - x[i]) for i in eachindex(f.λ))
+
+function prox!(y, f::TotalVariation1DWeighted, x, γ)
+    # solves y = arg min_z sum_{k} lam[k] |z_{k+1}-z_k| + 1/2 * ||z-x||^2
+    N = length(x)
+    if N == 0 return end
+    if N == 1
+        y[1] = x[1]
+        return
+    end
+
+    # Pad the penalties with a trailing zero to eliminate the k==N edge case
+    L = zeros(eltype(x), N)
+    L[1:N-1] .= γ .* f.λ
+
+    k0 = kminus = kplus = 1
+    vmin = x[1] - L[1]
+    vmax = x[1] + L[1]
+    umin = L[1]
+    umax = -L[1]
+
+    k = 2
+    while k <= N
+        umin += x[k] - vmin
+        umax += x[k] - vmax
+        
+        # 1. Negative jump
+        if umin < -L[k]
+            y[k0:kminus] .= vmin
+            k0 = kminus + 1
+            
+            if k0 > N; break; end
+            
+            k = kminus = kplus = k0
+            vmin = x[k0] + L[k0-1] - L[k0]
+            vmax = x[k0] + L[k0-1] + L[k0]
+            umin = L[k0]
+            umax = -L[k0]
+            k += 1
+            
+        # 2. Positive jump
+        elseif umax > L[k]
+            y[k0:kplus] .= vmax
+            k0 = kplus + 1
+            
+            if k0 > N; break; end
+            
+            k = kminus = kplus = k0
+            vmin = x[k0] - L[k0-1] - L[k0]
+            vmax = x[k0] - L[k0-1] + L[k0]
+            umin = L[k0]
+            umax = -L[k0]
+            k += 1
+            
+        # 3. Update candidate slopes
+        else
+            if umin >= L[k]
+                vmin += (umin - L[k]) / (k - k0 + 1)
+                umin = L[k]
+                kminus = k
+            end
+            if umax <= -L[k]
+                vmax += (umax + L[k]) / (k - k0 + 1)
+                umax = -L[k]
+                kplus = k
+            end
+            k += 1
+        end
+    end
+
+    # Safely fill the remaining tail segment
+    if k0 <= N
+        y[k0:N] .= vmin
+    end
+
+    return f(y)
+end
