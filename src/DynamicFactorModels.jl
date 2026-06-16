@@ -53,6 +53,7 @@ export
     ZeroMean, Exogenous,                                    # mean specifications
     Simple, SpatialAutoregression, SpatialMovingAverage,    # error models
     NormL21Weighted, NormL1plusL21, TotalVariation1D,       # regularizers
+    TotalVariation1DWeighted,
 
     # interface methods
     ## getters
